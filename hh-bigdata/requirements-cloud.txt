@@ -1,0 +1,10 @@
+# Зависимости для Streamlit Community Cloud (SQLite, без PostgreSQL-драйвера).
+# Скопируйте это содержимое в requirements.txt в КОРНЕ репозитория.
+pandas>=3.0,<4
+numpy>=2.3
+pydantic>=2.11,<3
+requests>=2.32
+python-dotenv>=1.0
+SQLAlchemy>=2.0,<2.1
+streamlit>=1.40
+plotly>=5.24
