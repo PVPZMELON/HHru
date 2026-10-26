@@ -1,0 +1,12 @@
+pandas==3.0.5
+numpy==2.5.3
+pydantic==2.13.5
+requests==2.34.2
+python-dotenv==1.2.3
+
+SQLAlchemy>=2.0,<2.1
+psycopg[binary]>=3.2.10,<4
+streamlit>=1.40
+plotly>=5.24
+
+
