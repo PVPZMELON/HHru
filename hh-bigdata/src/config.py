@@ -127,7 +127,7 @@ def get_settings() -> Settings:
         db=_db_settings(env),
         collector=CollectorSettings(
             api_base=env("HH_API_BASE", "https://api.hh.ru"),
-            token=env("HH_API_TOKEN", "APPLRNMJ99AQM338J8K9D8D66VNCPT3RV315POR1H6NTSI4J8LHPEOAKJMVC119T"),
+            token=env("HH_API_TOKEN", ""),
             user_agent=env("HH_USER_AGENT", "BigDataStudyProject/1.0 (contact@example.invalid)"),
             queries=_split(env("COLLECT_QUERIES"), ["Python разработчик"]),
             areas=_split(env("COLLECT_AREAS"), ["1"]),
