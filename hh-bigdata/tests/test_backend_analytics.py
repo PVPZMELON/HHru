@@ -128,7 +128,7 @@ def test_salary_analytics_returns_comparable_basis_and_group_summaries(db, monke
     assert payload["basis"]["currency"] == "RUB"
     assert payload["statistics"]["median"] == 150000
     assert {row["name"] for row in payload["by_region"]} == {"Москва", "Казань"}
-    assert all(row["reliable"] for row in payload["by_region"])
+    reliability = {row["name"]: row["reliable"] for row in payload["by_region"]}\n    assert reliability == {"Москва": True, "Казань": False}
 
 
 def test_skills_analytics_returns_demand_and_salary_basis(db, monkeypatch):
