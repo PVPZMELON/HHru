@@ -31,6 +31,24 @@ def render() -> None:
     st.plotly_chart(charts.hbar(top, "skill", "vacancies", f"Самые востребованные навыки (доля — от {total} вакансий выборки)",
                                 "Вакансий", text=top.apply(lambda r: f"{int(r['vacancies'])} ({fmt_pct(r['share'])})", axis=1)))
 
+    st.subheader("Динамика востребованности навыков")
+    trend = m.skill_trend(ctx.df, skills, recent_days=14, top=12)
+    if trend.empty:
+        st.info("Для динамики нужны как минимум 30 вакансий в каждом из двух соседних 14-дневных периодов. "
+                "Показатель появится по мере накопления истории.")
+    else:
+        fig = charts.trend_bars(trend, "Изменение доли вакансий с навыком: последние 14 дней к предыдущим 14")
+        if fig is not None:
+            st.plotly_chart(fig, use_container_width=True)
+        trend_view = trend.rename(columns={
+            "skill": "Навык", "share_prior": "Доля ранее", "share_recent": "Доля сейчас",
+            "delta_pp": "Изменение, п.п.", "n_prior": "Вакансий ранее", "n_recent": "Вакансий сейчас"
+        }).copy()
+        trend_view["Доля ранее"] = (trend_view["Доля ранее"] * 100).round(1)
+        trend_view["Доля сейчас"] = (trend_view["Доля сейчас"] * 100).round(1)
+        st.dataframe(trend_view, hide_index=True, use_container_width=True)
+        st.caption("Это изменение доли навыка в текущей выборке, а не гарантированный прогноз будущего спроса.")
+
     st.subheader("Зарплаты с навыком и без него")
     if ctx.basis is None or ctx.pool.empty:
         st.info("Нет сопоставимых зарплат — сравнение недоступно.")
