@@ -1,21 +1,16 @@
-"""Визуальная система дашборда: цвета, форматирование чисел, общий стиль графиков.
-
-Правила: один акцентный цвет для одной серии; последовательная шкала «светлый → тёмный» одного
-оттенка для величин; два цвета (синий/оранжевый) только для знака разности; подписи и сетка
-нейтральные; цвет не несёт смысла без подписи.
-"""
+"""Визуальная система дашборда: палитра NextWave, форматирование чисел и графиков."""
 from __future__ import annotations
 
 import math
 
-ACCENT = "#6366f1"        # основной цвет данных (индиго)
-ACCENT_2 = "#f97316"      # противоположный знак / вторая категория
-MUTED = "#94a3b8"         # второстепенные элементы
-# Градиент «величина → цвет»: холодный голубой → индиго → фиолетовый (светлее = меньше, насыщеннее = больше)
-BAR_SCALE = [[0.0, "#38bdf8"], [0.55, "#6366f1"], [1.0, "#8b5cf6"]]
-SEQUENTIAL = [[0.0, "#f1f5f9"], [0.5, "#818cf8"], [1.0, "#312e81"]]
-DONUT_COLORS = ["#6366f1", "#38bdf8", "#8b5cf6", "#22d3ee", "#a78bfa", "#94a3b8"]
-GRID = "rgba(128,128,128,0.16)"
+# Светлая редакционная палитра: графит + лайм, как в выбранном референсе.
+ACCENT = "#a9dc43"
+ACCENT_2 = "#24363b"
+MUTED = "#899596"
+BAR_SCALE = [[0.0, "#e5f4c9"], [0.55, "#b8e65c"], [1.0, "#6f9f2d"]]
+SEQUENTIAL = [[0.0, "#f4f8ec"], [0.5, "#c8e98b"], [1.0, "#52752a"]]
+DONUT_COLORS = ["#b8e65c", "#24363b", "#8fbf45", "#d9edb2", "#718184", "#c5d0c8"]
+GRID = "rgba(30,48,52,0.10)"
 
 CURRENCY_SIGNS = {"RUB": "₽", "USD": "$", "EUR": "€", "KZT": "₸", "BYN": "Br"}
 
@@ -72,15 +67,15 @@ def salary_text(row) -> str:
 
 
 def style(fig, height: int = 360, title: str | None = None, legend: bool = False):
-    """Единый стиль Plotly-фигуры."""
+    """Единый стиль Plotly: прозрачный фон, нейтральная сетка, лаймовый акцент."""
     fig.update_layout(
         height=height, margin=dict(l=8, r=8, t=48 if title else 16, b=8),
-        transition=dict(duration=600, easing="cubic-in-out"),
-        title=dict(text=title, font=dict(size=15), x=0, xanchor="left") if title else None,
-        font=dict(size=13), showlegend=legend, bargap=0.28,
+        transition=dict(duration=500, easing="cubic-in-out"),
+        title=dict(text=title, font=dict(size=15, color="#142126"), x=0, xanchor="left") if title else None,
+        font=dict(size=13, color="#405054"), showlegend=legend, bargap=0.28,
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         hoverlabel=dict(font_size=13),
     )
-    fig.update_xaxes(gridcolor=GRID, zeroline=False, title_font=dict(size=12))
-    fig.update_yaxes(gridcolor=GRID, zeroline=False, title_font=dict(size=12))
+    fig.update_xaxes(gridcolor=GRID, zeroline=False, title_font=dict(size=12), tickfont=dict(color="#68767a"))
+    fig.update_yaxes(gridcolor=GRID, zeroline=False, title_font=dict(size=12), tickfont=dict(color="#68767a"))
     return fig
