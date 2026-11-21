@@ -2,6 +2,7 @@ services:
   - type: web
     name: hhru-analytics-api
     runtime: docker
+    plan: free
     dockerfilePath: ./hh-bigdata/Dockerfile
     dockerContext: .
     healthCheckPath: /api/v1/health
