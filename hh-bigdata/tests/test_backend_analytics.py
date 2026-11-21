@@ -186,3 +186,24 @@ def test_forecast_endpoint_returns_explanation_when_history_is_short(db, monkeyp
     assert payload["forecast"]["available"] is False
     assert "нужно не менее" in payload["forecast"]["reason"]
     assert payload["skill_trends"] == []
+
+
+def test_quality_endpoint_returns_database_quality_snapshot(db, monkeypatch):
+    run_etl(db, [hh_item(1), hh_item(2)],
+            origin="import", description="test quality", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/quality")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_vacancies"] == 2
+    assert payload["sources"][0]["data_origin"] == "import"
+    assert payload["runs"][0]["source_description"] == "test quality"
+    assert payload["missing"]
+
+
+def test_collection_endpoint_requires_admin_token(monkeypatch):
+    monkeypatch.delenv("ADMIN_API_TOKEN", raising=False)
+    response = TestClient(api.app).post("/api/v1/etl/collect")
+    assert response.status_code == 401
