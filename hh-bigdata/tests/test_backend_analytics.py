@@ -171,3 +171,18 @@ def test_analytics_endpoints_validate_date_filters():
             params={"date_from": "2026-10-10", "date_to": "2026-10-01"},
         )
         assert response.status_code == 400
+
+
+def test_forecast_endpoint_returns_explanation_when_history_is_short(db, monkeypatch):
+    run_etl(db, [hh_item(i) for i in range(1, 5)],
+            origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/analytics/forecast", params={"horizon": 14})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample"]["vacancies"] == 4
+    assert payload["forecast"]["available"] is False
+    assert "нужно не менее" in payload["forecast"]["reason"]
+    assert payload["skill_trends"] == []
