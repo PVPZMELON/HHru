@@ -44,7 +44,7 @@ def test_overview_uses_existing_metrics_and_supports_filters(db, monkeypatch):
     assert all_data["sample"]["employers"] == 4
     assert all_data["salary"]["comparable_count"] == 3
     assert all_data["salary_disclosure"]["count"] == 3
-    assert all_data["top_skill"]["name"] == "Python"
+    assert all_data["top_skill"]["name"] == "Docker"
 
     assert filtered_response.status_code == 200
     assert filtered_response.json()["sample"]["vacancies"] == 3
