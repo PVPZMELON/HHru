@@ -22,5 +22,7 @@ services:
         value: require
       - key: HH_API_TOKEN
         sync: false
+      - key: ADMIN_API_TOKEN
+        sync: false
       - key: FRONTEND_ORIGINS
         sync: false
