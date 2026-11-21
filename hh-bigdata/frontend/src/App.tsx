@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { SalaryPage, SkillsPage, GeographyPage } from './AnalyticsPages'
 import {
   Activity, ArrowUpRight, BriefcaseBusiness, ChartNoAxesCombined,
   Database, GraduationCap, MapPinned, Search, Sparkles, Wallet,
@@ -179,7 +180,10 @@ function App() {
           <div className="pagination"><span>Страница {pageNumber} из {pageCount}</span><div><button disabled={pageNumber <= 1} onClick={() => setPageNumber((n) => n - 1)}>Назад</button><button disabled={pageNumber >= pageCount} onClick={() => setPageNumber((n) => n + 1)}>Дальше</button></div></div>
         </section>}
 
-        {!['Обзор', 'Каталог вакансий'].includes(page) && <section className="coming-soon"><span className="eyebrow">РАЗДЕЛ В РАЗРАБОТКЕ</span><h2>{page}</h2><p>Подключим этот аналитический раздел к backend после реализации соответствующего API.</p><button className="primary-button" onClick={() => setPage('Каталог вакансий')}>Перейти к вакансиям <ArrowUpRight size={17}/></button></section>}
+        {page === 'Зарплаты' && <SalaryPage region={region}/>}
+        {page === 'Навыки' && <SkillsPage region={region}/>}
+        {page === 'География' && <GeographyPage region={region}/>}
+        {!['Обзор', 'Каталог вакансий', 'Зарплаты', 'Навыки', 'География'].includes(page) && <section className="coming-soon"><span className="eyebrow">СЛЕДУЮЩИЙ ЭТАП</span><h2>{page}</h2><p>Этот раздел подключается к серверным данным. Пока можно исследовать реальные вакансии и базовые аналитические показатели.</p><button className="primary-button" onClick={() => setPage('Каталог вакансий')}>Перейти к вакансиям <ArrowUpRight size={17}/></button></section>}
         <footer className="footer"><span>HHRU MARKET INTELLIGENCE</span><span>Данные → Аналитика → Решения</span></footer>
       </main>
     </div>
