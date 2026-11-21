@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: hhru-analytics-api
+    runtime: docker
+    dockerfilePath: ./hh-bigdata/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DB_BACKEND
+        value: postgres
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_SSLMODE
+        value: require
+      - key: HH_API_TOKEN
+        sync: false
+      - key: ADMIN_API_TOKEN
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
