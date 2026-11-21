@@ -1,13 +1,13 @@
-"""Страница 5. Каталог вакансий: поиск, фильтры, сортировка, пагинация, выгрузка CSV."""
+"""Страница 5. Каталог вакансий: поиск, фильтры, сортировка, карточки, таблица и CSV."""
 from __future__ import annotations
 
+import html
 import math
 
 import pandas as pd
 import streamlit as st
 
 from src.dashboard import ui
-
 from src.analytics import queries as q
 from src.dashboard.data import cached_facets, get_ctx, synthetic_banner
 from src.dashboard.theme import fmt_int, salary_text
@@ -29,12 +29,10 @@ def _page(flt, cq, limit: int, offset: int) -> pd.DataFrame:
 
 
 def _display(df: pd.DataFrame) -> pd.DataFrame:
-    """Таблица для показа: зарплата словами, пропуски — «—»."""
     out = pd.DataFrame({
         "Название": df["title"], "Работодатель": df["employer_name"], "Регион": df["region_name"],
         "Направление": df["role_name"], "Опыт": df["experience"], "Занятость": df["employment"],
-        "Зарплата": df.apply(salary_text, axis=1),
-        "Навыки": df["skills"].replace("", None),
+        "Зарплата": df.apply(salary_text, axis=1), "Навыки": df["skills"].replace("", None),
         "Опубликована": pd.to_datetime(df["published_at"], utc=True).dt.strftime("%d.%m.%Y"),
         "Тип данных": df["data_origin"], "Ссылка": df["url"],
     })
@@ -44,28 +42,54 @@ def _display(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _csv_bytes(flt, cq, total: int) -> bytes:
-    """CSV отфильтрованной выборки. Полный текст описаний НЕ выгружается: он принадлежит источнику."""
     with get_engine().connect() as conn:
         df = q.catalog_page(conn, flt, cq, min(total, EXPORT_LIMIT), 0)
     df["Зарплата"] = df.apply(salary_text, axis=1)
     return df.drop(columns=["id"]).to_csv(index=False).encode("utf-8-sig")
 
 
+def _vacancy_cards(df: pd.DataFrame) -> None:
+    for row in df.to_dict("records"):
+        title = html.escape(str(row.get("title") or "Без названия"))
+        employer = html.escape(str(row.get("employer_name") or "Работодатель не указан"))
+        region = html.escape(str(row.get("region_name") or "Регион не указан"))
+        role = html.escape(str(row.get("role_name") or ""))
+        experience = html.escape(str(row.get("experience") or "Опыт не указан"))
+        employment = html.escape(str(row.get("employment") or ""))
+        salary = html.escape(salary_text(row))
+        skills = html.escape(str(row.get("skills") or "Навыки не указаны"))
+        published = pd.to_datetime(row.get("published_at"), utc=True, errors="coerce")
+        date_text = published.strftime("%d.%m.%Y") if pd.notna(published) else "Дата не указана"
+        url = row.get("url")
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            st.markdown(f"{employer} · {region} · {date_text}")
+            a, b, c = st.columns([2, 2, 3])
+            a.markdown(f"**{salary}**")
+            b.caption(f"{experience} · {employment}")
+            c.caption(role)
+            st.caption(f"Навыки: {skills}")
+            if isinstance(url, str) and url.startswith(("https://", "http://")):
+                st.link_button("Открыть вакансию на hh.ru", url)
+
+
 def render() -> None:
     ctx = get_ctx()
-    ui.hero("Каталог вакансий", "Поиск, фильтры, сортировка и выгрузка")
+    ui.hero("Каталог вакансий", "Найдите подходящие предложения, сравните условия и откройте оригинал на hh.ru")
     synthetic_banner(ctx.df)
     facets = cached_facets()
 
-    c1, c2 = st.columns([2, 3])
-    search = c1.text_input("Поиск по названию и описанию", placeholder="например, Python или аналитик")
-    skills = c2.multiselect("Навыки (должны быть все выбранные)", facets["skills"], placeholder="Любые")
-    c3, c4, c5, c6 = st.columns(4)
-    experience = c3.multiselect("Опыт", facets["experience"], placeholder="Любой")
-    employment = c4.multiselect("Занятость", facets["employment"], placeholder="Любая")
-    salary_min = c5.number_input("Зарплата от, ₽ (верхняя граница не ниже)", min_value=0, value=0, step=10_000,
-                                 help="Только вакансии в рублях; учитывается наибольшая известная граница вилки.")
-    sort = c6.selectbox("Сортировка", list(q.SORT_OPTIONS))
+    with st.container(border=True):
+        st.subheader("Поиск и фильтры каталога")
+        c1, c2 = st.columns([2, 3])
+        search = c1.text_input("Поиск по названию и описанию", placeholder="например, Python или аналитик")
+        skills = c2.multiselect("Навыки (должны быть все выбранные)", facets["skills"], placeholder="Любые")
+        c3, c4, c5, c6 = st.columns(4)
+        experience = c3.multiselect("Опыт", facets["experience"], placeholder="Любой")
+        employment = c4.multiselect("Занятость", facets["employment"], placeholder="Любая")
+        salary_min = c5.number_input("Зарплата от, ₽", min_value=0, value=0, step=10_000,
+                                     help="Только вакансии в рублях; учитывается наибольшая известная граница вилки.")
+        sort = c6.selectbox("Сортировка", list(q.SORT_OPTIONS))
 
     cq = q.CatalogQuery(search=search, skills=tuple(skills), experience=tuple(experience), employment=tuple(employment),
                         salary_min_rub=float(salary_min) or None, sort=sort)
@@ -74,19 +98,29 @@ def render() -> None:
         st.info("Ничего не найдено. Ослабьте фильтры (глобальные — в боковой панели).")
         return
 
-    size = st.selectbox("Строк на странице", [25, 50, 100], index=0)
+    a, b, c = st.columns(3)
+    a.metric("Найдено вакансий", fmt_int(total))
+    b.metric("Выбрано навыков", len(skills))
+    c.metric("Минимальная зарплата", f"{fmt_int(salary_min)} ₽" if salary_min else "Без ограничения")
+
+    left, right = st.columns([1, 1])
+    size = left.selectbox("На странице", [10, 25, 50, 100], index=1)
+    view = right.radio("Вид результатов", ["Карточки", "Таблица"], horizontal=True)
     pages = max(1, math.ceil(total / size))
     page = st.number_input(f"Страница (из {pages})", min_value=1, max_value=pages, value=1, step=1)
     data = _page(ctx.flt, cq, size, (int(page) - 1) * size)
-    st.caption(f"Найдено вакансий: {fmt_int(total)}. Показаны {fmt_int((page - 1) * size + 1)}–{fmt_int((page - 1) * size + len(data))}.")
-    st.dataframe(_display(data), hide_index=True,
-                 column_config={"Ссылка": st.column_config.LinkColumn("Ссылка", display_text="Открыть")})
+    st.caption(f"Показаны {fmt_int((page - 1) * size + 1)}–{fmt_int((page - 1) * size + len(data))} из {fmt_int(total)} вакансий.")
+
+    if view == "Карточки":
+        _vacancy_cards(data)
+    else:
+        st.dataframe(_display(data), hide_index=True, use_container_width=True,
+                     column_config={"Ссылка": st.column_config.LinkColumn("Ссылка", display_text="Открыть")})
     if (data["url"].isna()).any():
-        st.caption("«Ссылка» пуста у вакансий без адреса источника (например, синтетических). «—» означает отсутствие значения в данных.")
+        st.caption("Ссылка отсутствует у некоторых записей (например, у синтетических вакансий).")
 
     with st.expander("Выгрузка в CSV"):
-        st.write(f"Будет выгружено до {fmt_int(EXPORT_LIMIT)} вакансий текущей выборки без полного текста описаний "
-                 "(описание принадлежит источнику; выгружаются поля для анализа и ссылка на оригинал).")
+        st.write(f"Будет выгружено до {fmt_int(EXPORT_LIMIT)} вакансий текущей выборки без полного текста описаний.")
         if st.checkbox("Подготовить файл"):
-            st.download_button("Скачать CSV", data=_csv_bytes(ctx.flt, cq, total), file_name="vacancies_filtered.csv",
-                               mime="text/csv")
+            st.download_button("Скачать CSV", data=_csv_bytes(ctx.flt, cq, total),
+                               file_name="vacancies_filtered.csv", mime="text/csv")
