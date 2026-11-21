@@ -9,7 +9,11 @@ import streamlit as st
 from src.analytics import queries as q
 from src.dashboard import charts, ui
 from src.dashboard.theme import ORIGIN_LABELS, STATUS_LABELS, fmt_int
+from src.config import get_settings
+from src.collectors.hh_client import HhClient
+from src.collectors.raw_store import save_jsonl
 from src.db.session import get_engine
+from src.pipeline import run_etl
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -24,6 +28,85 @@ def _load() -> dict:
 def render() -> None:
     ui.hero("Качество данных и конвейер", "История запусков ETL, пропуски и ошибки — только фактическое состояние")
     st.caption("Страница показывает всю таблицу вакансий и фактическую историю запусков ETL; глобальные фильтры не применяются.")
+
+    st.subheader("Сбор реальных вакансий из hh.ru")
+    settings = get_settings()
+    cfg = settings.collector
+    st.caption(
+        f"Запросы: {', '.join(cfg.queries)} · регионы hh.ru: {', '.join(cfg.areas)} · "
+        f"лимит: {cfg.max_vacancies} вакансий · подробности: "
+        f"{'включены' if cfg.fetch_details else 'выключены'}"
+    )
+    if not cfg.token:
+        st.warning("HH_API_TOKEN не задан. Сбор может быть ограничен API hh.ru; добавь токен в Secrets Streamlit.")
+    if st.button("Запустить сбор из API hh.ru", type="primary", use_container_width=True):
+        try:
+            with st.spinner(
+                f"Обращаемся к hh.ru и обрабатываем до {cfg.max_vacancies} вакансий. "
+                "Это может занять несколько минут…"
+            ):
+                collected = HhClient(cfg).collect()
+                raw_path = None
+                raw_storage_warning = None
+                if collected.items:
+                    try:
+                        raw_path = str(save_jsonl(collected.items, settings.raw_dir, "hh"))
+                    except OSError as exc:
+                        raw_storage_warning = f"Не удалось сохранить промежуточный JSONL-файл: {type(exc).__name__}"
+                description = (
+                    f"hh.ru API; запросы: {'; '.join(cfg.queries)}; "
+                    f"регионы: {', '.join(cfg.areas)}"
+                )
+                params = {
+                    "queries": cfg.queries,
+                    "areas": cfg.areas,
+                    "max_vacancies": cfg.max_vacancies,
+                    "per_page": cfg.per_page,
+                    "max_pages": cfg.max_pages,
+                    "fetch_details": cfg.fetch_details,
+                    "requests_made": collected.requests_made,
+                    "details_fetched": collected.details_fetched,
+                    "stopped_reason": collected.stopped_reason,
+                    "found_by_query": collected.found_by_query,
+                }
+                summary = run_etl(
+                    get_engine(),
+                    collected.items,
+                    origin="api",
+                    description=description,
+                    params=params,
+                    raw_path=raw_path,
+                    source_errors=collected.errors,
+                )
+            _load.clear()
+            st.cache_data.clear()
+            st.write(
+                f"Запросов к API: **{collected.requests_made}** · "
+                f"получено вакансий: **{summary.fetched}** · "
+                f"получено подробностей: **{collected.details_fetched}**"
+            )
+            st.write(
+                f"Валидных: **{summary.valid}** · новых: **{summary.inserted}** · "
+                f"обновлено: **{summary.updated}** · без изменений: **{summary.unchanged}** · "
+                f"отклонено: **{summary.rejected}** · дублей удалено: **{summary.duplicates_removed}**"
+            )
+            if summary.status == "success":
+                st.success(f"Сбор завершён успешно. Запуск ETL №{summary.run_id}.")
+            elif summary.status == "partial":
+                st.warning(f"Сбор завершён частично. Запуск ETL №{summary.run_id}.")
+            else:
+                st.error(f"Сбор не удался. Запуск ETL №{summary.run_id}.")
+            for error in summary.errors[:5]:
+                st.error(error)
+            if raw_storage_warning:
+                st.warning(raw_storage_warning)
+            if not collected.items:
+                st.info("API не вернул вакансии. Проверь ошибки выше и историю запуска ниже.")
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001 — показываем безопасную причину, не секреты
+            _load.clear()
+            st.error(f"Не удалось выполнить сбор или загрузку: {type(exc).__name__}: {str(exc).splitlines()[0][:300]}")
+
     d = _load()
     history, missing, sources = d["history"], d["missing"], d["sources"]
 
