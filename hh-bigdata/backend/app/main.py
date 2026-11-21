@@ -276,3 +276,151 @@ def vacancy_facets():
             status_code=503,
             detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить фильтры каталога"},
         ) from exc
+
+
+def _salary_basis_payload(metrics, vacancies):
+    bases = metrics.available_bases(vacancies)
+    return [
+        {"currency": str(row.currency), "gross": bool(row.gross), "count": int(row.n)}
+        for row in bases.itertuples(index=False)
+    ]
+
+
+@app.get("/api/v1/analytics/salaries", tags=["analytics"])
+def salary_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    currency: str | None = None,
+    gross: bool | None = None,
+):
+    """Сопоставимая статистика зарплат и сравнение по регионам/профессиям."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    bases = metrics.available_bases(vacancies)
+    if currency is not None or gross is not None:
+        matched = bases
+        if currency is not None:
+            matched = matched[matched["currency"] == currency]
+        if gross is not None:
+            matched = matched[matched["gross"] == gross]
+        if matched.empty:
+            basis = None
+        else:
+            first = matched.iloc[0]
+            basis = metrics.SalaryBasis(str(first["currency"]), bool(first["gross"]))
+    else:
+        basis = metrics.default_basis(vacancies)
+
+    pool = metrics.salary_pool(vacancies, basis)
+    stats = metrics.describe_salary(pool["salary_mid"]) if not pool.empty else metrics.describe_salary(
+        vacancies.iloc[0:0].assign(salary_mid=[])
+    ["salary_mid"])
+    by_region = metrics.group_summary(vacancies, pool, "region_name")
+    by_role = metrics.group_summary(vacancies, pool, "role_name")
+    return {
+        "basis": ({"currency": basis.currency, "gross": basis.gross,
+                   "label": basis.label} if basis else None),
+        "available_bases": _salary_basis_payload(metrics, vacancies),
+        "sample": {"vacancies": int(len(vacancies)), "comparable": int(len(pool))},
+        "statistics": stats,
+        "by_region": [
+            {"name": _json_value(row["region_name"]), "vacancies": int(row["vacancies"]),
+             "salary_share": _json_value(row["salary_share"]), "comparable": int(row["n"]),
+             "median": _json_value(row["median"]), "mean": _json_value(row["mean"]),
+             "reliable": bool(row["reliable"])}
+            for row in by_region.to_dict(orient="records")
+        ],
+        "by_role": [
+            {"name": _json_value(row["role_name"]), "vacancies": int(row["vacancies"]),
+             "salary_share": _json_value(row["salary_share"]), "comparable": int(row["n"]),
+             "median": _json_value(row["median"]), "mean": _json_value(row["mean"]),
+             "reliable": bool(row["reliable"])}
+            for row in by_role.to_dict(orient="records")
+        ],
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/analytics/skills", tags=["analytics"])
+def skills_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Рейтинг навыков, доли спроса и описательное сравнение зарплат с навыком/без."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    top = metrics.top_skills(skills, n=limit, total_vacancies=len(vacancies))
+    basis = metrics.default_basis(vacancies)
+    pool = metrics.salary_pool(vacancies, basis)
+    salary = metrics.skill_salary(pool, skills)
+    salary_by_skill = {
+        row["skill"]: row for row in salary.to_dict(orient="records")
+    }
+    items = []
+    for row in top.to_dict(orient="records"):
+        salary_row = salary_by_skill.get(row["skill"])
+        items.append({
+            "name": row["skill"],
+            "vacancies": int(row["vacancies"]),
+            "share": _json_value(row["share"]),
+            "salary": ({
+                "with_skill_median": _json_value(salary_row["median"]),
+                "without_skill_median": _json_value(salary_row["median_without"]),
+                "difference": _json_value(salary_row["diff"]),
+                "comparable_with": int(salary_row["n"]),
+                "comparable_without": int(salary_row["n_without"]),
+            } if salary_row else None),
+        })
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "skills": int(len(skills))},
+        "salary_basis": ({"currency": basis.currency, "gross": basis.gross,
+                          "label": basis.label} if basis else None),
+        "items": items,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/analytics/regions", tags=["analytics"])
+def regions_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    """Распределение вакансий и сопоставимых зарплат по регионам."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, _skills = _analytics_data(flt)
+    basis = metrics.default_basis(vacancies)
+    pool = metrics.salary_pool(vacancies, basis)
+    grouped = metrics.group_summary(vacancies, pool, "region_name").head(limit)
+    items = [
+        {"region": _json_value(row["region_name"]), "vacancies": int(row["vacancies"]),
+         "salary_disclosure_share": _json_value(row["salary_share"]),
+         "comparable_salary_count": int(row["n"]),
+         "median_salary": _json_value(row["median"]),
+         "mean_salary": _json_value(row["mean"]),
+         "reliable_salary": bool(row["reliable"])}
+        for row in grouped.to_dict(orient="records")
+    ]
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "regions": int(vacancies["region_name"].nunique())},
+        "salary_basis": ({"currency": basis.currency, "gross": basis.gross,
+                          "label": basis.label} if basis else None),
+        "items": items,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
