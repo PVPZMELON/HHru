@@ -36,6 +36,10 @@ def _group_section(ctx, by: str, title: str, label_ru: str) -> None:
                                 "Среднее": st.column_config.NumberColumn(format="%d"),
                                 "Q1": st.column_config.NumberColumn(format="%d"),
                                 "Q3": st.column_config.NumberColumn(format="%d")})
+    export = _summary_table(summary, by, title)
+    st.download_button(f"Скачать сравнение: {label_ru} (CSV)",
+                       export.to_csv(index=False).encode("utf-8-sig"),
+                       f"salary_{by}.csv", "text/csv")
 
 
 def render() -> None:
