@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\\/$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '')
 
 type SalaryRow = { name: string | null; vacancies: number; salary_share: number | null; comparable: number; median: number | null; mean: number | null; reliable: boolean }
 type SalaryData = { basis: { currency: string; gross: boolean; label: string } | null; sample: { vacancies: number; comparable: number }; statistics: { median: number | null; mean: number | null; p25: number | null; p75: number | null; min: number | null; max: number | null }; by_region: SalaryRow[]; by_role: SalaryRow[] }
