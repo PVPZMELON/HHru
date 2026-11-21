@@ -28,6 +28,23 @@ def _bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "да"}
 
 
+def _get_env(key: str, default: str | None = None) -> str | None:
+    """Читает настройки из OS/.env, а в Streamlit Cloud — также из st.secrets.
+
+    Переменные окружения имеют приоритет. Streamlit импортируется лениво, чтобы
+    конфигурация оставалась пригодной для CLI и тестов вне Streamlit.
+    """
+    value = os.environ.get(key)
+    if value is not None:
+        return value
+    try:
+        import streamlit as st
+        value = st.secrets.get(key, default)
+    except Exception:  # noqa: BLE001 — вне Streamlit или Secrets ещё не настроены
+        value = default
+    return str(value) if value is not None else default
+
+
 class DbSettings(BaseModel):
     """Параметры БД. backend: sqlite (файл, без сервера) или postgres."""
     backend: str = "sqlite"
@@ -122,7 +139,7 @@ class Settings(BaseModel):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    env = os.environ.get
+    env = _get_env
     return Settings(
         db=_db_settings(env),
         collector=CollectorSettings(
