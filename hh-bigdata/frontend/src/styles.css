@@ -73,3 +73,7 @@
 .learning-priority{font-size:9px;font-weight:750;color:#648b2b;background:#f0f7e5;padding:7px 9px;border-radius:6px;white-space:nowrap}
 .trend-panel{margin-top:15px}
 @media(max-width:560px){.learning-card{gap:10px;padding:13px}.learning-priority{font-size:8px}.learning-card h3{font-size:12px}}
+
+.subheading{margin-top:24px!important}
+.issue-line{display:flex;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid #f0f2ee;font-size:11px;color:#536267}
+.issue-line b{color:#142126}
