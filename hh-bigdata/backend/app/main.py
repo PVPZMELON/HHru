@@ -22,7 +22,7 @@ if _origins:
         allow_origins=_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+        allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-Admin-Token"],
     )
 
 
