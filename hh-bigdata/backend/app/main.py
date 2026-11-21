@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from datetime import date
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -473,4 +473,87 @@ def forecast_analytics(
                      "backtest": backtest},
         "skill_trends": trends,
         "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/etl/runs", tags=["etl"])
+def etl_runs(limit: int = Query(default=20, ge=1, le=100)):
+    """Последние запуски ETL."""
+    from src.analytics.queries import etl_history
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            rows = etl_history(conn, limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="Не удалось получить историю ETL") from exc
+    return {"items": [
+        {key: _json_value(value) for key, value in row.items()}
+        for row in rows.to_dict(orient="records")
+    ]}
+
+
+@app.get("/api/v1/quality", tags=["etl"])
+def data_quality():
+    """Фактические пропуски, источники и проблемы последнего запуска ETL."""
+    from src.analytics import queries
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            history = queries.etl_history(conn, 20)
+            missing = queries.table_missing_stats(conn)
+            sources = queries.data_sources(conn)
+            issues = (queries.run_issue_summary(conn, int(history.iloc[0]["id"]))
+                      if not history.empty else None)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="Не удалось получить показатели качества") from exc
+    return {
+        "total_vacancies": int(sources["vacancies"].sum()) if not sources.empty else 0,
+        "missing": [{"field": row["Поле"], "count": int(row["Пропусков"]),
+                     "share": float(row["Доля"])} for row in missing.to_dict(orient="records")],
+        "sources": [{key: _json_value(value) for key, value in row.items()}
+                    for row in sources.to_dict(orient="records")],
+        "latest_issues": ([{"type": row["issue_type"], "count": int(row["n"])}
+                           for row in issues.to_dict(orient="records")] if issues is not None else []),
+        "runs": [{key: _json_value(value) for key, value in row.items()}
+                 for row in history.head(10).to_dict(orient="records")],
+    }
+
+
+@app.post("/api/v1/etl/collect", tags=["etl"])
+def collect_from_hh(admin_token: str | None = Header(default=None, alias="X-Admin-Token")):
+    """Запускает сбор hh.ru только при наличии отдельного административного токена."""
+    import secrets
+    from src.collectors.hh_client import HhClient
+    from src.collectors.raw_store import save_jsonl
+    from src.config import get_settings
+    from src.db.session import get_engine
+    from src.pipeline import run_etl
+
+    expected = os.getenv("ADMIN_API_TOKEN", "")
+    if not expected or not admin_token or not secrets.compare_digest(admin_token, expected):
+        raise HTTPException(status_code=401, detail="Требуется действительный административный токен")
+    settings = get_settings()
+    try:
+        cfg = settings.collector
+        collected = HhClient(cfg).collect()
+        raw_path = str(save_jsonl(collected.items, settings.raw_dir, "hh")) if collected.items else None
+        params = {
+            "queries": cfg.queries, "areas": cfg.areas, "max_vacancies": cfg.max_vacancies,
+            "requests_made": collected.requests_made, "details_fetched": collected.details_fetched,
+            "stopped_reason": collected.stopped_reason, "found_by_query": collected.found_by_query,
+        }
+        summary = run_etl(
+            get_engine(), collected.items, origin="api",
+            description=f"hh.ru API; запросы: {'; '.join(cfg.queries)}; регионы: {', '.join(cfg.areas)}",
+            params=params, raw_path=raw_path, source_errors=collected.errors,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Сбор или загрузка данных не удались") from exc
+    return {
+        "run_id": summary.run_id, "status": summary.status, "fetched": summary.fetched,
+        "valid": summary.valid, "rejected": summary.rejected, "inserted": summary.inserted,
+        "updated": summary.updated, "unchanged": summary.unchanged,
+        "errors": summary.errors[:10],
     }
