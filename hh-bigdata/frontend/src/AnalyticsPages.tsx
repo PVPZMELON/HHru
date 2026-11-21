@@ -105,3 +105,23 @@ export function LearningPage({ region }: { region: string }) {
     {data && <><div className="analytics-note">Это ориентир по спросу, а не персональная рекомендация. Анализируем {data.sample.vacancies} вакансий.</div><div className="learning-list">{data.items.slice(0, 12).map((item, index) => <article className="learning-card" key={item.name}><span className="learning-rank">{String(index + 1).padStart(2, '0')}</span><div><h3>{item.name}</h3><p>Встречается в {item.vacancies} вакансиях · {pct(item.share)} выборки</p></div><span className="learning-priority">{index < 3 ? 'Высокий спрос' : index < 7 ? 'Средний спрос' : 'Дополнительный навык'}</span></article>)}</div></>}
   </section>
 }
+
+
+type QualityData = {
+  total_vacancies: number
+  missing: Array<{ field: string; count: number; share: number }>
+  sources: Array<{ data_origin: string; vacancies: number; first_loaded: string | null; last_seen: string | null }>
+  latest_issues: Array<{ type: string; count: number }>
+  runs: Array<{ id: number; started_at: string | null; finished_at: string | null; status: string; data_origin: string; source_description: string; fetched_count: number; valid_count: number; rejected_count: number; inserted_count: number; updated_count: number; unchanged_count: number; error_message: string | null }>
+}
+
+export function QualityPage() {
+  const { data, error, loading } = useAnalytics<QualityData>('/api/v1/quality', '')
+  return <section className="analytics-page"><header className="section-heading"><div><span className="eyebrow">КОНТРОЛЬ ДАННЫХ</span><h2>Качество и ETL</h2><p>Пропуски, источники данных и история фактических запусков конвейера.</p></div></header>
+    <State loading={loading} error={error} empty={!loading && !error && !data?.total_vacancies}/>
+    {data && <><div className="kpi-grid analytics-kpis"><Metric label="ВАКАНСИЙ В БАЗЕ" value={data.total_vacancies.toLocaleString('ru-RU')}/><Metric label="ИСТОЧНИКОВ" value={data.sources.length.toLocaleString('ru-RU')}/><Metric label="ЗАПУСКОВ ETL" value={data.runs.length.toLocaleString('ru-RU')}/><Metric label="ПРОБЛЕМ В ПОСЛЕДНЕМ ЗАПУСКЕ" value={data.latest_issues.reduce((sum, item) => sum + item.count, 0).toLocaleString('ru-RU')}/></div>
+      <div className="analytics-grid"><article className="analytics-panel"><h3>Пропуски и полнота данных</h3><div className="analytics-table-wrap"><table><thead><tr><th>Поле</th><th>Пропусков</th><th>Доля</th></tr></thead><tbody>{data.missing.map(row => <tr key={row.field}><td>{row.field}</td><td>{row.count}</td><td>{pct(row.share)}</td></tr>)}</tbody></table></div></article><article className="analytics-panel"><h3>Источники вакансий</h3><div className="analytics-table-wrap"><table><thead><tr><th>Источник</th><th>Вакансий</th><th>Последнее обновление</th></tr></thead><tbody>{data.sources.map(row => <tr key={row.data_origin}><td>{row.data_origin}</td><td>{row.vacancies}</td><td>{row.last_seen ? new Date(row.last_seen).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div><h3 className="subheading">Проблемы последнего запуска</h3>{data.latest_issues.length ? data.latest_issues.map(item => <p className="issue-line" key={item.type}>{item.type}<b>{item.count}</b></p>) : <p className="analytics-footnote">Проблемы качества не зафиксированы.</p>}</article></div>
+      <article className="analytics-panel trend-panel"><h3>История запусков ETL</h3><div className="analytics-table-wrap"><table><thead><tr><th>Запуск</th><th>Дата</th><th>Статус</th><th>Получено</th><th>Новых</th><th>Обновлено</th><th>Ошибки</th></tr></thead><tbody>{data.runs.map(run => <tr key={run.id}><td>#{run.id}</td><td>{run.started_at ? new Date(run.started_at).toLocaleString('ru-RU') : '—'}</td><td>{run.status}</td><td>{run.fetched_count}</td><td>{run.inserted_count}</td><td>{run.updated_count}</td><td>{run.error_message ?? '—'}</td></tr>)}</tbody></table></div></article>
+    </>}
+  </section>
+}
