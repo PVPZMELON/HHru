@@ -117,7 +117,30 @@ type QualityData = {
 
 export function QualityPage() {
   const { data, error, loading } = useAnalytics<QualityData>('/api/v1/quality', '')
+  const [adminToken, setAdminToken] = useState('')
+  const [collecting, setCollecting] = useState(false)
+  const [collectError, setCollectError] = useState('')
+  const [collectResult, setCollectResult] = useState<{ run_id: number; status: string; fetched: number; inserted: number; updated: number } | null>(null)
+  const startCollection = async () => {
+    if (!adminToken.trim()) { setCollectError('Введите административный токен, заданный в настройках backend.'); return }
+    setCollecting(true)
+    setCollectError('')
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/etl/collect`, { method: 'POST', headers: { 'X-Admin-Token': adminToken } })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(body?.detail ?? 'Не удалось запустить сбор')
+      setCollectResult(body)
+      setAdminToken('')
+    } catch (reason) {
+      setCollectError(reason instanceof Error ? reason.message : 'Ошибка запуска сбора')
+    } finally {
+      setCollecting(false)
+    }
+  }
   return <section className="analytics-page"><header className="section-heading"><div><span className="eyebrow">КОНТРОЛЬ ДАННЫХ</span><h2>Качество и ETL</h2><p>Пропуски, источники данных и история фактических запусков конвейера.</p></div></header>
+    <div className="collect-control"><div><b>Обновить данные из hh.ru</b><p>Административный токен передаётся только в защищённом HTTPS-запросе и не сохраняется в браузере.</p></div><input type="password" autoComplete="off" value={adminToken} onChange={event => setAdminToken(event.target.value)} placeholder="ADMIN_API_TOKEN"/><button className="primary-button" disabled={collecting} onClick={startCollection}>{collecting ? 'Собираем…' : 'Запустить сбор'}</button></div>
+    {collectError && <p className="error-panel">{collectError}</p>}
+    {collectResult && <p className="analytics-note">Запуск #{collectResult.run_id}: {collectResult.status} · получено {collectResult.fetched} · новых {collectResult.inserted} · обновлено {collectResult.updated}. Обновите страницу, чтобы увидеть свежую историю.</p>}
     <State loading={loading} error={error} empty={!loading && !error && !data?.total_vacancies}/>
     {data && <><div className="kpi-grid analytics-kpis"><Metric label="ВАКАНСИЙ В БАЗЕ" value={data.total_vacancies.toLocaleString('ru-RU')}/><Metric label="ИСТОЧНИКОВ" value={data.sources.length.toLocaleString('ru-RU')}/><Metric label="ЗАПУСКОВ ETL" value={data.runs.length.toLocaleString('ru-RU')}/><Metric label="ПРОБЛЕМ В ПОСЛЕДНЕМ ЗАПУСКЕ" value={data.latest_issues.reduce((sum, item) => sum + item.count, 0).toLocaleString('ru-RU')}/></div>
       <div className="analytics-grid"><article className="analytics-panel"><h3>Пропуски и полнота данных</h3><div className="analytics-table-wrap"><table><thead><tr><th>Поле</th><th>Пропусков</th><th>Доля</th></tr></thead><tbody>{data.missing.map(row => <tr key={row.field}><td>{row.field}</td><td>{row.count}</td><td>{pct(row.share)}</td></tr>)}</tbody></table></div></article><article className="analytics-panel"><h3>Источники вакансий</h3><div className="analytics-table-wrap"><table><thead><tr><th>Источник</th><th>Вакансий</th><th>Последнее обновление</th></tr></thead><tbody>{data.sources.map(row => <tr key={row.data_origin}><td>{row.data_origin}</td><td>{row.vacancies}</td><td>{row.last_seen ? new Date(row.last_seen).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div><h3 className="subheading">Проблемы последнего запуска</h3>{data.latest_issues.length ? data.latest_issues.map(item => <p className="issue-line" key={item.type}>{item.type}<b>{item.count}</b></p>) : <p className="analytics-footnote">Проблемы качества не зафиксированы.</p>}</article></div>
