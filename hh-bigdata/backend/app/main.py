@@ -164,3 +164,115 @@ def overview(
             "vacancies": values["top_skill_count"],
         },
     }
+
+
+_SORT_ALIASES = {
+    "published_desc": "Дата публикации (новые)",
+    "published_asc": "Дата публикации (старые)",
+    "salary_desc": "Зарплата (по убыванию)",
+    "salary_asc": "Зарплата (по возрастанию)",
+    "title_asc": "Название (А–Я)",
+}
+
+
+def _json_value(value):
+    """Преобразует значения pandas/numpy/datetime в типы, сериализуемые JSON."""
+    import math
+    import pandas as pd
+
+    if value is None or pd.isna(value):
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _catalog_item(row: dict) -> dict:
+    return {
+        "id": int(row["id"]),
+        "title": row["title"],
+        "employer_name": _json_value(row.get("employer_name")),
+        "region_name": _json_value(row.get("region_name")),
+        "role_name": _json_value(row.get("role_name")),
+        "experience": _json_value(row.get("experience")),
+        "employment": _json_value(row.get("employment")),
+        "schedule": _json_value(row.get("schedule")),
+        "salary": {
+            "from": _json_value(row.get("salary_from")),
+            "to": _json_value(row.get("salary_to")),
+            "currency": _json_value(row.get("salary_currency")),
+            "gross": _json_value(row.get("salary_gross")),
+            "kind": _json_value(row.get("salary_kind")),
+        },
+        "published_at": _json_value(row.get("published_at")),
+        "url": _json_value(row.get("url")),
+        "data_origin": row["data_origin"],
+        "skills": [name for name in str(row.get("skills") or "").split(", ") if name],
+    }
+
+
+@app.get("/api/v1/vacancies", tags=["vacancies"])
+def vacancies(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    q: str = Query(default="", max_length=200),
+    skills: list[str] = Query(default=[]),
+    experience: list[str] = Query(default=[]),
+    employment: list[str] = Query(default=[]),
+    salary_min_rub: float | None = Query(default=None, ge=0, le=100000000),
+    sort: str = "published_desc",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+):
+    """Поиск и постраничный каталог вакансий на стороне БД."""
+    from src.analytics import queries
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    sort_label = _SORT_ALIASES.get(sort, sort)
+    if sort_label not in queries.SORT_OPTIONS:
+        raise HTTPException(status_code=400, detail="Неизвестный параметр sort")
+    catalog_query = queries.CatalogQuery(
+        search=q,
+        skills=tuple(skills),
+        experience=tuple(experience),
+        employment=tuple(employment),
+        salary_min_rub=salary_min_rub,
+        sort=sort_label,
+    )
+    offset = (page - 1) * page_size
+    try:
+        from src.db.session import get_engine
+
+        with get_engine().connect() as conn:
+            total = queries.catalog_count(conn, flt, catalog_query)
+            rows = queries.catalog_page(conn, flt, catalog_query, page_size, offset)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить каталог вакансий"},
+        ) from exc
+    items = [_catalog_item(row) for row in rows.to_dict(orient="records")]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@app.get("/api/v1/vacancies/facets", tags=["vacancies"])
+def vacancy_facets():
+    """Справочники для фильтров каталога: опыт, занятость и навыки."""
+    from src.analytics.queries import catalog_facets
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            return catalog_facets(conn)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить фильтры каталога"},
+        ) from exc
