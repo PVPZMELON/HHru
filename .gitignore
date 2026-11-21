@@ -25,3 +25,8 @@ env/
 
 # Raw collected data (may contain personal vacancy/contact details)
 hh-bigdata/data/raw/
+
+# Frontend build artifacts
+**/node_modules/
+**/dist/
+**/.vite/
