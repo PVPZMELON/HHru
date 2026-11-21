@@ -15,7 +15,7 @@
 ## 2. Развернуть backend на Render
 1. Создайте Web Service из GitHub-репозитория.
 2. Выберите ветку `ci-backend-frontend` для первого тестового деплоя. Не переключайте production на неё до проверки.
-3. Render должен использовать Blueprint `hh-bigdata/render.yaml` из корня репозитория.
+3. Render должен использовать Blueprint `render.yaml` из корня репозитория.
 4. В Environment добавьте значения `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE=require`, `HH_API_TOKEN`.
 5. Сгенерируйте отдельный длинный случайный `ADMIN_API_TOKEN` и сохраните в менеджере паролей. Он не должен совпадать с токеном hh.ru.
 6. После успешного deploy проверьте `https://<backend-host>/api/v1/health`, затем `/api/v1/ready` и `/api/docs`.
