@@ -55,9 +55,19 @@ p,label,[data-testid="stMarkdownContainer"] { color:inherit; }
 [data-testid="stMetricValue"] { color:var(--hh-ink); font-weight:800; letter-spacing:-.04em; }
 [data-testid="stAlert"] { border-radius:15px; } hr { border-color:var(--hh-edge); }
 section[data-testid="stSidebar"] { background:#eef2eb; border-right:1px solid var(--hh-edge); }
-section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:var(--hh-muted); }
+section[data-testid="stSidebar"] { color:var(--hh-ink) !important; }
+section[data-testid="stSidebar"] h1,section[data-testid="stSidebar"] h2,section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] label,section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] { color:var(--hh-ink) !important; }
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color:var(--hh-ink) !important; }
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color:var(--hh-muted) !important; }
+section[data-testid="stSidebar"] input,section[data-testid="stSidebar"] [data-baseweb="select"] > div,
+section[data-testid="stSidebar"] [data-baseweb="input"] > div { background:#ffffff !important; color:var(--hh-ink) !important; border-color:var(--hh-edge) !important; }
 section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] { border-radius:12px; margin:.12rem 0; }
 section[data-testid="stSidebar"] [aria-current="page"] { background:var(--hh-lime) !important; color:var(--hh-ink) !important; font-weight:750; }
+[data-testid="stToolbar"] { background:transparent !important; }
+[data-testid="stAppViewBlockContainer"] { color:var(--hh-ink); }
+[data-testid="stPlotlyChart"] iframe { border-radius:14px; }
 .stButton > button,.stDownloadButton > button { border-radius:999px; border:1px solid var(--hh-ink); min-height:2.65rem;
   font-weight:700; transition:transform .18s ease,box-shadow .18s ease,background .18s ease; }
 .stButton > button[kind="primary"] { background:var(--hh-lime); color:var(--hh-ink); border-color:var(--hh-lime); }
