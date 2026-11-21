@@ -34,8 +34,8 @@ PAGES = [
 
 
 @st.cache_resource(show_spinner=False)
-def _ensure_sqlite_schema() -> str:
-    """SQLite-файл создаётся автоматически: если схемы нет — применяем миграции (идемпотентно)."""
+def _ensure_database_schema() -> str:
+    """Подготавливает схему SQLite или PostgreSQL идемпотентными миграциями."""
     try:
         migrate(get_engine())
         return ""
@@ -67,11 +67,10 @@ def main() -> None:
         st.markdown("Проверьте `.env` (для SQLite — `DB_PATH`; для PostgreSQL — DB_HOST, DB_PORT, DB_NAME, DB_USER, "
                     "DB_PASSWORD, запущена ли база) и применены ли миграции (`python -m src.pipeline migrate`).")
         st.stop()
-    if is_sqlite(get_engine()):
-        problem = _ensure_sqlite_schema()
-        if problem:
-            st.error(f"Не удалось подготовить файл SQLite: {problem}")
-            st.stop()
+    problem = _ensure_database_schema()
+    if problem:
+        st.error(f"Не удалось подготовить схему базы данных: {problem}")
+        st.stop()
 
     page = st.navigation(PAGES)
     try:
