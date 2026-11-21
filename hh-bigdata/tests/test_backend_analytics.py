@@ -110,3 +110,64 @@ def test_vacancy_catalog_facets(db, monkeypatch):
     assert response.status_code == 200
     assert "От 1 года до 3 лет" in response.json()["experience"]
     assert "Python" in response.json()["skills"]
+
+
+def test_salary_analytics_returns_comparable_basis_and_group_summaries(db, monkeypatch):
+    items = [
+        hh_item(i, area={"id": "1" if i <= 6 else "2", "name": "Москва" if i <= 6 else "Казань"})
+        for i in range(1, 11)
+    ]
+    run_etl(db, items, origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/analytics/salaries")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample"]["vacancies"] == 10
+    assert payload["sample"]["comparable"] == 10
+    assert payload["basis"]["currency"] == "RUB"
+    assert payload["statistics"]["median"] == 150000
+    assert {row["name"] for row in payload["by_region"]} == {"Москва", "Казань"}
+    assert all(row["reliable"] for row in payload["by_region"])
+
+
+def test_skills_analytics_returns_demand_and_salary_basis(db, monkeypatch):
+    run_etl(db, [hh_item(i) for i in range(1, 8)],
+            origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/analytics/skills", params={"limit": 10})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample"]["vacancies"] == 7
+    assert payload["items"]
+    assert payload["items"][0]["name"] in {"Python", "SQL", "Docker"}
+    assert 0 < payload["items"][0]["share"] <= 1
+    assert payload["salary_basis"]["currency"] == "RUB"
+
+
+def test_regions_analytics_returns_vacancy_counts_and_reliable_salary(db, monkeypatch):
+    run_etl(db, [
+        hh_item(i, area={"id": "1" if i <= 6 else "2", "name": "Москва" if i <= 6 else "Казань"})
+        for i in range(1, 9)
+    ], origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/analytics/regions")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample"]["vacancies"] == 8
+    assert payload["sample"]["regions"] == 2
+    assert payload["items"][0]["region"] in {"Москва", "Казань"}
+    assert payload["items"][0]["comparable_salary_count"] >= 5
+    assert payload["items"][0]["reliable_salary"] is True
+
+
+def test_analytics_endpoints_validate_date_filters():
+    client = TestClient(api.app)
+    for endpoint in ("salaries", "skills", "regions"):
+        response = client.get(
+            f"/api/v1/analytics/{endpoint}",
+            params={"date_from": "2026-10-10", "date_to": "2026-10-01"},
+        )
+        assert response.status_code == 400
