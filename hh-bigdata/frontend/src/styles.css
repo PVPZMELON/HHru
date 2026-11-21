@@ -39,3 +39,27 @@
 .coming-soon p{font-size:13px;color:#718084;max-width:500px;line-height:1.8}
 @media(max-width:1050px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.catalog-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.kpi-grid{grid-template-columns:1fr 1fr}.catalog-filters{grid-template-columns:1fr}.search-field{grid-column:auto}.vacancy-card{flex-direction:column}.vacancy-side{align-items:flex-start;text-align:left;min-width:0}.coming-soon{margin-top:35px;padding:30px}.kpi-card{padding:15px;min-height:115px}.kpi-card strong{font-size:22px}}
+
+
+/* Analytics sections */
+.analytics-page{padding-bottom:24px}
+.analytics-page .section-heading{margin-top:38px}
+.analytics-note{margin:0 0 16px;padding:13px 16px;border:1px solid #e4e9e2;border-radius:10px;background:#fff;color:#68767a;font-size:11px}
+.analytics-kpis{margin:16px 0 18px}
+.analytics-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:15px;align-items:start}
+.analytics-panel{min-width:0;background:#fff;border:1px solid #e4e9e2;border-radius:15px;padding:20px}
+.analytics-panel h3{font-size:14px;letter-spacing:-.3px;margin:0 0 18px}
+.analytics-table-wrap{width:100%;overflow-x:auto}
+.analytics-table-wrap table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}
+.analytics-table-wrap th{text-align:left;color:#879397;font-size:9px;letter-spacing:.5px;padding:10px 9px;border-bottom:1px solid #e8ede6}
+.analytics-table-wrap td{padding:12px 9px;border-bottom:1px solid #f0f2ee;color:#344247}
+.analytics-table-wrap tr:last-child td{border-bottom:0}
+.analytics-bars{display:grid;gap:14px}
+.analytics-bar-row{display:grid;grid-template-columns:minmax(80px,130px) 1fr auto;align-items:center;gap:10px;font-size:10px;color:#536267}
+.analytics-bar-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.analytics-bar-row>b{font-size:10px;color:#142126;font-variant-numeric:tabular-nums}
+.analytics-track{height:9px;border-radius:99px;background:#f0f3ed;overflow:hidden}
+.analytics-track i{display:block;height:100%;border-radius:99px;background:#a9d94e}
+.analytics-footnote{font-size:10px;line-height:1.6;color:#879397;margin:13px 0 0}
+@media(max-width:900px){.analytics-grid{grid-template-columns:1fr}}
+@media(max-width:650px){.analytics-panel{padding:15px}.analytics-bar-row{grid-template-columns:90px 1fr auto}.analytics-kpis{grid-template-columns:1fr 1fr}}
