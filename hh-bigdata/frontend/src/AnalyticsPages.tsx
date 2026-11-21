@@ -7,7 +7,7 @@ type SalaryData = { basis: { currency: string; gross: boolean; label: string } |
 type SkillItem = { name: string; vacancies: number; share: number; salary: { with_skill_median: number; without_skill_median: number; difference: number; comparable_with: number; comparable_without: number } | null }
 type SkillsData = { sample: { vacancies: number; skills: number }; salary_basis: { label: string; currency: string } | null; items: SkillItem[] }
 type RegionItem = { region: string | null; vacancies: number; salary_disclosure_share: number | null; comparable_salary_count: number; median_salary: number | null; mean_salary: number | null; reliable_salary: boolean }
-type RegionsData = { sample: { vacancies: number; regions: number }; salary_basis: { label: string } | null; items: RegionItem[] }
+type RegionsData = { sample: { vacancies: number; regions: number }; salary_basis: { label: string; currency: string } | null; items: RegionItem[] }
 
 function useAnalytics<T>(endpoint: string, region: string) {
   const [data, setData] = useState<T | null>(null)
