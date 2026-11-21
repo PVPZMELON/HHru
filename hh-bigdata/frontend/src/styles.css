@@ -77,3 +77,12 @@
 .subheading{margin-top:24px!important}
 .issue-line{display:flex;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid #f0f2ee;font-size:11px;color:#536267}
 .issue-line b{color:#142126}
+
+.collect-control{display:flex;align-items:center;gap:12px;padding:17px 18px;background:#fff;border:1px solid #e4e9e2;border-radius:14px;margin:12px 0 16px}
+.collect-control>div{flex:1}
+.collect-control b{font-size:12px}
+.collect-control p{font-size:10px;color:#879397;margin:5px 0 0;line-height:1.5}
+.collect-control input{width:220px;max-width:34%;height:40px;border:1px solid #e4e9e2;border-radius:8px;padding:0 10px;font:11px Manrope}
+.collect-control .primary-button{margin:0;white-space:nowrap}
+.collect-control button:disabled{opacity:.6;cursor:wait}
+@media(max-width:700px){.collect-control{align-items:stretch;flex-direction:column}.collect-control input{width:100%;max-width:none}.collect-control .primary-button{justify-content:center}}
