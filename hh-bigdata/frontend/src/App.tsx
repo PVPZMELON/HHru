@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
 import {
-  Activity, ArrowUpRight, BriefcaseBusiness, ChartNoAxesCombined, Compass,
+  Activity, ArrowUpRight, BriefcaseBusiness, ChartNoAxesCombined,
   Database, GraduationCap, MapPinned, Search, Sparkles, Wallet,
 } from 'lucide-react'
 
