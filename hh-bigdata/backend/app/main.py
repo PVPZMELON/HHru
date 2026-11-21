@@ -424,3 +424,53 @@ def regions_analytics(
         "items": items,
         "filters": _filter_params(date_from, date_to, region, role, origin),
     }
+
+
+@app.get("/api/v1/analytics/forecast", tags=["analytics"])
+def forecast_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    horizon: int = Query(default=14, ge=7, le=28),
+):
+    """Прогноз потока публикаций и изменение спроса на навыки на основе существующих метрик."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    daily = metrics.dynamics(vacancies, "D")
+    result = metrics.forecast_counts(daily, horizon=horizon)
+    forecast = []
+    history = []
+    backtest = None
+    reason = None
+    if result["ok"]:
+        history = [
+            {"date": _json_value(row["period"]), "count": int(row["count"])}
+            for row in result["history"].to_dict(orient="records")
+        ]
+        forecast = [
+            {"date": _json_value(row["period"]), "value": round(float(row["yhat"]), 2),
+             "low": round(float(row["lo"]), 2), "high": round(float(row["hi"]), 2)}
+            for row in result["forecast"].to_dict(orient="records")
+        ]
+        backtest = result["backtest"]
+    else:
+        reason = result["reason"]
+    trend = metrics.skill_trend(vacancies, skills, recent_days=14, top=12)
+    trends = [
+        {"skill": row["skill"], "share_previous": float(row["share_prior"]),
+         "share_recent": float(row["share_recent"]), "change_pp": float(row["delta_pp"]),
+         "count_previous": int(row["n_prior"]), "count_recent": int(row["n_recent"])}
+        for row in trend.to_dict(orient="records")
+    ]
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "days": int(len(daily))},
+        "forecast": {"available": bool(result["ok"]), "reason": reason,
+                     "horizon_days": horizon, "history": history, "items": forecast,
+                     "backtest": backtest},
+        "skill_trends": trends,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
