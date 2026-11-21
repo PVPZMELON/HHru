@@ -1,7 +1,10 @@
-"""Минимальный FastAPI backend; бизнес-логика остаётся в существующем src/."""
+"""FastAPI backend; аналитика использует существующие SQL- и metrics-модули проекта."""
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+from datetime import date
+
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -12,10 +15,6 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# Origins задаются серверным окружением. По умолчанию CORS закрыт.
-# Для локального frontend можно задать FRONTEND_ORIGINS=http://localhost:5173
-import os
-
 _origins = [item.strip() for item in os.getenv("FRONTEND_ORIGINS", "").split(",") if item.strip()]
 if _origins:
     app.add_middleware(
@@ -23,28 +22,538 @@ if _origins:
         allow_origins=_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+        allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-Admin-Token"],
     )
 
 
 @app.get("/api/v1/health", tags=["system"])
 def health() -> dict[str, str]:
-    """Liveness check: процесс API запущен. Не проверяет внешние зависимости."""
+    """Liveness check: процесс API запущен."""
     return {"status": "ok", "service": "hhru-api", "version": app.version}
 
 
 @app.get("/api/v1/ready", tags=["system"])
 def ready() -> dict[str, str]:
-    """Readiness check: проверяет доступность настроенной БД без раскрытия секретов."""
+    """Проверяет доступность настроенной БД без раскрытия секретов."""
     try:
-        # Импортируем src только при запросе, чтобы документация API открывалась
-        # даже в окружении, где БД ещё не настроена.
         from src.db.session import check_connection
 
         ok, _message = check_connection()
-    except Exception:  # noqa: BLE001 — клиенту не раскрываем детали конфигурации
+    except Exception:  # noqa: BLE001
         ok = False
     if not ok:
-        raise HTTPException(status_code=503, detail={"code": "DEPENDENCY_UNAVAILABLE",
-                                                     "message": "База данных временно недоступна"})
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "База данных временно недоступна"},
+        )
     return {"status": "ready", "database": "available"}
+
+
+def _filters(
+    date_from: date | None,
+    date_to: date | None,
+    region: list[str],
+    role: list[str],
+    origin: list[str],
+):
+    from src.analytics.filters import Filters
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from не может быть позже date_to")
+    return Filters(
+        date_from=date_from,
+        date_to=date_to,
+        regions=tuple(region),
+        roles=tuple(role),
+        origins=tuple(origin),
+    )
+
+
+def _analytics_data(flt):
+    from src.analytics import queries
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            options = queries.filter_options(conn)
+            vacancies = queries.load_vacancies(conn, flt)
+            skills = queries.load_vacancy_skills(conn, flt)
+    except Exception as exc:  # noqa: BLE001 — не раскрываем клиенту SQL и инфраструктурные детали
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить данные из БД"},
+        ) from exc
+    return options, vacancies, skills
+
+
+def _filter_params(
+    date_from: date | None,
+    date_to: date | None,
+    region: list[str],
+    role: list[str],
+    origin: list[str],
+) -> dict:
+    return {
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "region": region,
+        "role": role,
+        "origin": origin,
+    }
+
+
+@app.get("/api/v1/filters/options", tags=["analytics"])
+def filter_options():
+    """Справочники и границы дат для фильтров frontend."""
+    from src.db.session import get_engine
+    from src.analytics.queries import filter_options as load_options
+
+    try:
+        with get_engine().connect() as conn:
+            data = load_options(conn)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить справочники"},
+        ) from exc
+    return {
+        "regions": data["regions"],
+        "roles": data["roles"],
+        "origins": data["origins"],
+        "date_min": data["date_min"].isoformat() if data["date_min"] else None,
+        "date_max": data["date_max"].isoformat() if data["date_max"] else None,
+        "total": data["total"],
+    }
+
+
+@app.get("/api/v1/overview", tags=["analytics"])
+def overview(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+):
+    """KPI рынка труда с теми же правилами фильтрации и зарплат, что и Streamlit."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    basis = metrics.default_basis(vacancies)
+    values = metrics.overview(vacancies, skills, basis)
+    return {
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+        "sample": {
+            "vacancies": values["vacancies"],
+            "employers": values["employers"],
+        },
+        "salary": {
+            "currency": basis.currency if basis else None,
+            "gross": basis.gross if basis else None,
+            "comparable_count": values["comparable"],
+            "median": values["median"],
+            "mean": values["mean"],
+        },
+        "salary_disclosure": {
+            "count": values["with_salary"],
+            "share": values["with_salary_share"],
+        },
+        "invalid_salary": values["invalid_salary"],
+        "top_skill": {
+            "name": values["top_skill"],
+            "vacancies": values["top_skill_count"],
+        },
+    }
+
+
+_SORT_ALIASES = {
+    "published_desc": "Дата публикации (новые)",
+    "published_asc": "Дата публикации (старые)",
+    "salary_desc": "Зарплата (по убыванию)",
+    "salary_asc": "Зарплата (по возрастанию)",
+    "title_asc": "Название (А–Я)",
+}
+
+
+def _json_value(value):
+    """Преобразует значения pandas/numpy/datetime в типы, сериализуемые JSON."""
+    import math
+    import pandas as pd
+
+    if value is None or pd.isna(value):
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _catalog_item(row: dict) -> dict:
+    return {
+        "id": int(row["id"]),
+        "title": row["title"],
+        "employer_name": _json_value(row.get("employer_name")),
+        "region_name": _json_value(row.get("region_name")),
+        "role_name": _json_value(row.get("role_name")),
+        "experience": _json_value(row.get("experience")),
+        "employment": _json_value(row.get("employment")),
+        "schedule": _json_value(row.get("schedule")),
+        "salary": {
+            "from": _json_value(row.get("salary_from")),
+            "to": _json_value(row.get("salary_to")),
+            "currency": _json_value(row.get("salary_currency")),
+            "gross": _json_value(row.get("salary_gross")),
+            "kind": _json_value(row.get("salary_kind")),
+        },
+        "published_at": _json_value(row.get("published_at")),
+        "url": _json_value(row.get("url")),
+        "data_origin": row["data_origin"],
+        "skills": [name for name in str(row.get("skills") or "").split(", ") if name],
+    }
+
+
+@app.get("/api/v1/vacancies", tags=["vacancies"])
+def vacancies(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    q: str = Query(default="", max_length=200),
+    skills: list[str] = Query(default=[]),
+    experience: list[str] = Query(default=[]),
+    employment: list[str] = Query(default=[]),
+    salary_min_rub: float | None = Query(default=None, ge=0, le=100000000),
+    sort: str = "published_desc",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+):
+    """Поиск и постраничный каталог вакансий на стороне БД."""
+    from src.analytics import queries
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    sort_label = _SORT_ALIASES.get(sort, sort)
+    if sort_label not in queries.SORT_OPTIONS:
+        raise HTTPException(status_code=400, detail="Неизвестный параметр sort")
+    catalog_query = queries.CatalogQuery(
+        search=q,
+        skills=tuple(skills),
+        experience=tuple(experience),
+        employment=tuple(employment),
+        salary_min_rub=salary_min_rub,
+        sort=sort_label,
+    )
+    offset = (page - 1) * page_size
+    try:
+        from src.db.session import get_engine
+
+        with get_engine().connect() as conn:
+            total = queries.catalog_count(conn, flt, catalog_query)
+            rows = queries.catalog_page(conn, flt, catalog_query, page_size, offset)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить каталог вакансий"},
+        ) from exc
+    items = [_catalog_item(row) for row in rows.to_dict(orient="records")]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@app.get("/api/v1/vacancies/facets", tags=["vacancies"])
+def vacancy_facets():
+    """Справочники для фильтров каталога: опыт, занятость и навыки."""
+    from src.analytics.queries import catalog_facets
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            return catalog_facets(conn)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DEPENDENCY_UNAVAILABLE", "message": "Не удалось получить фильтры каталога"},
+        ) from exc
+
+
+def _salary_basis_payload(metrics, vacancies):
+    bases = metrics.available_bases(vacancies)
+    return [
+        {"currency": str(row.currency), "gross": bool(row.gross), "count": int(row.n)}
+        for row in bases.itertuples(index=False)
+    ]
+
+
+@app.get("/api/v1/analytics/salaries", tags=["analytics"])
+def salary_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    currency: str | None = None,
+    gross: bool | None = None,
+):
+    """Сопоставимая статистика зарплат и сравнение по регионам/профессиям."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    bases = metrics.available_bases(vacancies)
+    if currency is not None or gross is not None:
+        matched = bases
+        if currency is not None:
+            matched = matched[matched["currency"] == currency]
+        if gross is not None:
+            matched = matched[matched["gross"] == gross]
+        if matched.empty:
+            basis = None
+        else:
+            first = matched.iloc[0]
+            basis = metrics.SalaryBasis(str(first["currency"]), bool(first["gross"]))
+    else:
+        basis = metrics.default_basis(vacancies)
+
+    pool = metrics.salary_pool(vacancies, basis)
+    stats = metrics.describe_salary(pool["salary_mid"]) if not pool.empty else metrics.describe_salary(
+        vacancies.iloc[0:0].assign(salary_mid=[])
+    ["salary_mid"])
+    by_region = metrics.group_summary(vacancies, pool, "region_name")
+    by_role = metrics.group_summary(vacancies, pool, "role_name")
+    return {
+        "basis": ({"currency": basis.currency, "gross": basis.gross,
+                   "label": basis.label} if basis else None),
+        "available_bases": _salary_basis_payload(metrics, vacancies),
+        "sample": {"vacancies": int(len(vacancies)), "comparable": int(len(pool))},
+        "statistics": stats,
+        "by_region": [
+            {"name": _json_value(row["region_name"]), "vacancies": int(row["vacancies"]),
+             "salary_share": _json_value(row["salary_share"]), "comparable": int(row["n"]),
+             "median": _json_value(row["median"]), "mean": _json_value(row["mean"]),
+             "reliable": bool(row["reliable"])}
+            for row in by_region.to_dict(orient="records")
+        ],
+        "by_role": [
+            {"name": _json_value(row["role_name"]), "vacancies": int(row["vacancies"]),
+             "salary_share": _json_value(row["salary_share"]), "comparable": int(row["n"]),
+             "median": _json_value(row["median"]), "mean": _json_value(row["mean"]),
+             "reliable": bool(row["reliable"])}
+            for row in by_role.to_dict(orient="records")
+        ],
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/analytics/skills", tags=["analytics"])
+def skills_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Рейтинг навыков, доли спроса и описательное сравнение зарплат с навыком/без."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    top = metrics.top_skills(skills, n=limit, total_vacancies=len(vacancies))
+    basis = metrics.default_basis(vacancies)
+    pool = metrics.salary_pool(vacancies, basis)
+    salary = metrics.skill_salary(pool, skills)
+    salary_by_skill = {
+        row["skill"]: row for row in salary.to_dict(orient="records")
+    }
+    items = []
+    for row in top.to_dict(orient="records"):
+        salary_row = salary_by_skill.get(row["skill"])
+        items.append({
+            "name": row["skill"],
+            "vacancies": int(row["vacancies"]),
+            "share": _json_value(row["share"]),
+            "salary": ({
+                "with_skill_median": _json_value(salary_row["median"]),
+                "without_skill_median": _json_value(salary_row["median_without"]),
+                "difference": _json_value(salary_row["diff"]),
+                "comparable_with": int(salary_row["n"]),
+                "comparable_without": int(salary_row["n_without"]),
+            } if salary_row else None),
+        })
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "skills": int(len(skills))},
+        "salary_basis": ({"currency": basis.currency, "gross": basis.gross,
+                          "label": basis.label} if basis else None),
+        "items": items,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/analytics/regions", tags=["analytics"])
+def regions_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    """Распределение вакансий и сопоставимых зарплат по регионам."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, _skills = _analytics_data(flt)
+    basis = metrics.default_basis(vacancies)
+    pool = metrics.salary_pool(vacancies, basis)
+    grouped = metrics.group_summary(vacancies, pool, "region_name").head(limit)
+    items = [
+        {"region": _json_value(row["region_name"]), "vacancies": int(row["vacancies"]),
+         "salary_disclosure_share": _json_value(row["salary_share"]),
+         "comparable_salary_count": int(row["n"]),
+         "median_salary": _json_value(row["median"]),
+         "mean_salary": _json_value(row["mean"]),
+         "reliable_salary": bool(row["reliable"])}
+        for row in grouped.to_dict(orient="records")
+    ]
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "regions": int(vacancies["region_name"].nunique())},
+        "salary_basis": ({"currency": basis.currency, "gross": basis.gross,
+                          "label": basis.label} if basis else None),
+        "items": items,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/analytics/forecast", tags=["analytics"])
+def forecast_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    region: list[str] = Query(default=[]),
+    role: list[str] = Query(default=[]),
+    origin: list[str] = Query(default=[]),
+    horizon: int = Query(default=14, ge=7, le=28),
+):
+    """Прогноз потока публикаций и изменение спроса на навыки на основе существующих метрик."""
+    from src.analytics import metrics
+
+    flt = _filters(date_from, date_to, region, role, origin)
+    _options, vacancies, skills = _analytics_data(flt)
+    daily = metrics.dynamics(vacancies, "D")
+    result = metrics.forecast_counts(daily, horizon=horizon)
+    forecast = []
+    history = []
+    backtest = None
+    reason = None
+    if result["ok"]:
+        history = [
+            {"date": _json_value(row["period"]), "count": int(row["count"])}
+            for row in result["history"].to_dict(orient="records")
+        ]
+        forecast = [
+            {"date": _json_value(row["period"]), "value": round(float(row["yhat"]), 2),
+             "low": round(float(row["lo"]), 2), "high": round(float(row["hi"]), 2)}
+            for row in result["forecast"].to_dict(orient="records")
+        ]
+        backtest = result["backtest"]
+    else:
+        reason = result["reason"]
+    trend = metrics.skill_trend(vacancies, skills, recent_days=14, top=12)
+    trends = [
+        {"skill": row["skill"], "share_previous": float(row["share_prior"]),
+         "share_recent": float(row["share_recent"]), "change_pp": float(row["delta_pp"]),
+         "count_previous": int(row["n_prior"]), "count_recent": int(row["n_recent"])}
+        for row in trend.to_dict(orient="records")
+    ]
+    return {
+        "sample": {"vacancies": int(len(vacancies)), "days": int(len(daily))},
+        "forecast": {"available": bool(result["ok"]), "reason": reason,
+                     "horizon_days": horizon, "history": history, "items": forecast,
+                     "backtest": backtest},
+        "skill_trends": trends,
+        "filters": _filter_params(date_from, date_to, region, role, origin),
+    }
+
+
+@app.get("/api/v1/etl/runs", tags=["etl"])
+def etl_runs(limit: int = Query(default=20, ge=1, le=100)):
+    """Последние запуски ETL."""
+    from src.analytics.queries import etl_history
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            rows = etl_history(conn, limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="Не удалось получить историю ETL") from exc
+    return {"items": [
+        {key: _json_value(value) for key, value in row.items()}
+        for row in rows.to_dict(orient="records")
+    ]}
+
+
+@app.get("/api/v1/quality", tags=["etl"])
+def data_quality():
+    """Фактические пропуски, источники и проблемы последнего запуска ETL."""
+    from src.analytics import queries
+    from src.db.session import get_engine
+
+    try:
+        with get_engine().connect() as conn:
+            history = queries.etl_history(conn, 20)
+            missing = queries.table_missing_stats(conn)
+            sources = queries.data_sources(conn)
+            issues = (queries.run_issue_summary(conn, int(history.iloc[0]["id"]))
+                      if not history.empty else None)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="Не удалось получить показатели качества") from exc
+    return {
+        "total_vacancies": int(sources["vacancies"].sum()) if not sources.empty else 0,
+        "missing": [{"field": row["Поле"], "count": int(row["Пропусков"]),
+                     "share": float(row["Доля"])} for row in missing.to_dict(orient="records")],
+        "sources": [{key: _json_value(value) for key, value in row.items()}
+                    for row in sources.to_dict(orient="records")],
+        "latest_issues": ([{"type": row["issue_type"], "count": int(row["n"])}
+                           for row in issues.to_dict(orient="records")] if issues is not None else []),
+        "runs": [{key: _json_value(value) for key, value in row.items()}
+                 for row in history.head(10).to_dict(orient="records")],
+    }
+
+
+@app.post("/api/v1/etl/collect", tags=["etl"])
+def collect_from_hh(admin_token: str | None = Header(default=None, alias="X-Admin-Token")):
+    """Запускает сбор hh.ru только при наличии отдельного административного токена."""
+    import secrets
+    from src.collectors.hh_client import HhClient
+    from src.collectors.raw_store import save_jsonl
+    from src.config import get_settings
+    from src.db.session import get_engine
+    from src.pipeline import run_etl
+
+    expected = os.getenv("ADMIN_API_TOKEN", "")
+    if not expected or not admin_token or not secrets.compare_digest(admin_token, expected):
+        raise HTTPException(status_code=401, detail="Требуется действительный административный токен")
+    settings = get_settings()
+    try:
+        cfg = settings.collector
+        collected = HhClient(cfg).collect()
+        raw_path = str(save_jsonl(collected.items, settings.raw_dir, "hh")) if collected.items else None
+        params = {
+            "queries": cfg.queries, "areas": cfg.areas, "max_vacancies": cfg.max_vacancies,
+            "requests_made": collected.requests_made, "details_fetched": collected.details_fetched,
+            "stopped_reason": collected.stopped_reason, "found_by_query": collected.found_by_query,
+        }
+        summary = run_etl(
+            get_engine(), collected.items, origin="api",
+            description=f"hh.ru API; запросы: {'; '.join(cfg.queries)}; регионы: {', '.join(cfg.areas)}",
+            params=params, raw_path=raw_path, source_errors=collected.errors,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Сбор или загрузка данных не удались") from exc
+    return {
+        "run_id": summary.run_id, "status": summary.status, "fetched": summary.fetched,
+        "valid": summary.valid, "rejected": summary.rejected, "inserted": summary.inserted,
+        "updated": summary.updated, "unchanged": summary.unchanged,
+        "errors": summary.errors[:10],
+    }
