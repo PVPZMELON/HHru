@@ -59,7 +59,6 @@ def test_overview_rejects_inverted_date_range():
     assert response.status_code == 400
 
 
-
 def test_vacancy_catalog_paginates_and_returns_salary_and_skills(db, monkeypatch):
     run_etl(db, [
         hh_item(1),
@@ -128,7 +127,8 @@ def test_salary_analytics_returns_comparable_basis_and_group_summaries(db, monke
     assert payload["basis"]["currency"] == "RUB"
     assert payload["statistics"]["median"] == 150000
     assert {row["name"] for row in payload["by_region"]} == {"Москва", "Казань"}
-    reliability = {row["name"]: row["reliable"] for row in payload["by_region"]}\n    assert reliability == {"Москва": True, "Казань": False}
+    reliability = {row["name"]: row["reliable"] for row in payload["by_region"]}
+    assert reliability == {"Москва": True, "Казань": False}
 
 
 def test_skills_analytics_returns_demand_and_salary_basis(db, monkeypatch):
