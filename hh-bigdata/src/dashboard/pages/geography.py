@@ -27,6 +27,14 @@ def render() -> None:
     st.plotly_chart(charts.hbar(reg, "region_name", "count", f"Вакансии по регионам (топ-{top_n})", "Вакансий",
                                 text=reg.apply(lambda r: f"{int(r['count'])} ({fmt_pct(r['share'])})", axis=1)))
 
+    st.subheader("Структура регионального спроса")
+    reg_table = reg.rename(columns={"region_name": "Регион", "count": "Вакансий", "share": "Доля"})
+    reg_table["Доля"] = (reg_table["Доля"] * 100).round(1)
+    st.dataframe(reg_table, hide_index=True, use_container_width=True)
+    st.download_button("Скачать распределение по регионам CSV",
+                       reg_table.to_csv(index=False).encode("utf-8-sig"),
+                       "regional_demand.csv", "text/csv")
+
     st.subheader("Зарплаты по регионам")
     if ctx.basis is None or ctx.pool.empty:
         st.info("Нет сопоставимых зарплат для сравнения регионов.")
