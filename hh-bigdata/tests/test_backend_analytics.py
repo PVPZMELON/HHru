@@ -57,3 +57,56 @@ def test_overview_rejects_inverted_date_range():
         params={"date_from": "2026-10-10", "date_to": "2026-10-01"},
     )
     assert response.status_code == 400
+
+
+
+def test_vacancy_catalog_paginates_and_returns_salary_and_skills(db, monkeypatch):
+    run_etl(db, [
+        hh_item(1),
+        hh_item(2, name="Java-разработчик", key_skills=[{"name": "Java"}]),
+        hh_item(3, area={"id": "2", "name": "Казань"}),
+    ], origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/vacancies", params={"page": 1, "page_size": 2})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["page"] == 1
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["salary"]["currency"] == "RUB"
+    assert "Python" in payload["items"][0]["skills"]
+
+    second = client.get("/api/v1/vacancies", params={"page": 2, "page_size": 2})
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 1
+
+
+def test_vacancy_catalog_filters_search_and_rejects_bad_sort(db, monkeypatch):
+    run_etl(db, [
+        hh_item(1),
+        hh_item(2, name="Java-разработчик", key_skills=[{"name": "Java"}]),
+        hh_item(3, area={"id": "2", "name": "Казань"}),
+    ], origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    filtered = client.get("/api/v1/vacancies", params={"q": "Python", "region": "Москва"})
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 2
+
+    by_skill = client.get("/api/v1/vacancies", params=[("skills", "Python"), ("skills", "SQL")])
+    assert by_skill.status_code == 200
+    assert by_skill.json()["total"] == 2
+
+    invalid = client.get("/api/v1/vacancies", params={"sort": "DROP TABLE"})
+    assert invalid.status_code == 400
+
+
+def test_vacancy_catalog_facets(db, monkeypatch):
+    run_etl(db, [hh_item(1)], origin="import", description="test", params={})
+    client = _client_with_db(monkeypatch, db)
+
+    response = client.get("/api/v1/vacancies/facets")
+    assert response.status_code == 200
+    assert "От 1 года до 3 лет" in response.json()["experience"]
+    assert "Python" in response.json()["skills"]
