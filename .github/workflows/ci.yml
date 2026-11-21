@@ -63,3 +63,12 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build frontend
         run: npm run build
+
+  backend-image:
+    name: Backend Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -f hh-bigdata/Dockerfile -t hhru-analytics-api:test .
