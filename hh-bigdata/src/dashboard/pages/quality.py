@@ -102,7 +102,6 @@ def render() -> None:
                 st.warning(raw_storage_warning)
             if not collected.items:
                 st.info("API не вернул вакансии. Проверь ошибки выше и историю запуска ниже.")
-            st.rerun()
         except Exception as exc:  # noqa: BLE001 — показываем безопасную причину, не секреты
             _load.clear()
             st.error(f"Не удалось выполнить сбор или загрузку: {type(exc).__name__}: {str(exc).splitlines()[0][:300]}")
