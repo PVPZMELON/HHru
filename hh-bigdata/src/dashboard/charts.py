@@ -1,8 +1,7 @@
 """Построители графиков Plotly. Каждая функция принимает DataFrame из аналитического слоя
 и возвращает Figure (или None, если данных недостаточно); произвольных чисел в коде нет.
 
-Оформление: градиент «светло-голубой → индиго → фиолетовый» кодирует величину столбца, сетка и оси
-нейтральные, значения подписаны на графике, в подсказках — объём выборки.
+Оформление: светло-лаймовый → насыщенный лаймовый градиент кодирует величину; графит используется для вторичных серий.
 """
 from __future__ import annotations
 
@@ -49,7 +48,7 @@ def line(df: pd.DataFrame, x: str, y: str, title: str, y_title: str, height: int
     """Площадная линия со сглаживанием; пунктир — скользящее среднее за trend_window точек."""
     fig = go.Figure(go.Scatter(
         x=df[x], y=df[y], mode="lines", name=y_title, line=dict(color=ACCENT, width=2.5, shape="spline", smoothing=0.8),
-        fill="tozeroy", fillcolor="rgba(99,102,241,0.14)", hovertemplate="%{y:,.0f}<extra>" + y_title + "</extra>"))
+        fill="tozeroy", fillcolor="rgba(169,220,67,0.18)", hovertemplate="%{y:,.0f}<extra>" + y_title + "</extra>"))
     if len(df) >= trend_window * 2:
         fig.add_trace(go.Scatter(x=df[x], y=df[y].rolling(trend_window, min_periods=1).mean(), mode="lines",
                                  name=f"Среднее за {trend_window} точек", line=dict(color=MUTED, width=2, dash="dot"),
@@ -97,7 +96,7 @@ def median_bars(summary: pd.DataFrame, label: str, currency: str, title: str, he
 def skill_diff_bars(df: pd.DataFrame, currency: str, title: str):
     """Разность медиан «с навыком − без навыка»; цвет кодирует только знак."""
     data = df.iloc[::-1]
-    colors = [ACCENT if d >= 0 else ACCENT_2 for d in data["diff"]]
+    colors = ["#a9dc43" if d >= 0 else "#718184" for d in data["diff"]]
     fig = go.Figure(go.Bar(
         x=data["diff"], y=data["skill"], orientation="h", marker_color=colors,
         text=data.apply(lambda r: f"{r['diff']:+,.0f}".replace(",", NBSP) + f" (n={int(r['n'])})", axis=1),
@@ -188,7 +187,7 @@ def forecast_chart(history: pd.DataFrame, forecast: pd.DataFrame, title: str, ta
     fig.add_trace(go.Scatter(x=forecast["period"], y=forecast["hi"], mode="lines", line=dict(width=0), hoverinfo="skip",
                              showlegend=False))
     fig.add_trace(go.Scatter(x=forecast["period"], y=forecast["lo"], mode="lines", line=dict(width=0), fill="tonexty",
-                             fillcolor="rgba(249,115,22,0.18)", name="Интервал ≈95%", hoverinfo="skip"))
+                             fillcolor="rgba(200,241,105,0.22)", name="Интервал ≈95%", hoverinfo="skip"))
     fig.add_trace(go.Scatter(x=hist["period"], y=hist["count"], mode="lines+markers", name="Факт",
                              line=dict(color=ACCENT, width=2.5, shape="spline", smoothing=0.6),
                              marker=dict(size=5, color=ACCENT), hovertemplate="%{x|%d.%m}: %{y:,.0f}<extra>факт</extra>"))
@@ -206,7 +205,7 @@ def trend_bars(df: pd.DataFrame, title: str):
     if df.empty:
         return None
     data = df.sort_values("delta_pp").reset_index(drop=True)
-    colors = [ACCENT if d >= 0 else ACCENT_2 for d in data["delta_pp"]]
+    colors = ["#a9dc43" if d >= 0 else "#718184" for d in data["delta_pp"]]
     fig = go.Figure(go.Bar(
         x=data["delta_pp"], y=data["skill"], orientation="h", marker_color=colors,
         text=data["delta_pp"].map(lambda v: f"{v:+.1f} п.п."), textposition="outside", cliponaxis=False,
