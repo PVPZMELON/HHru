@@ -179,13 +179,22 @@ class HhClient:
         listed: dict[str, dict] = {}
 
         try:
+            # Делим общий лимит между всеми комбинациями регион × запрос.
+            # Иначе первый регион (обычно Москва) мог забрать весь лимит
+            # до того, как сборщик переходил к другим городам.
+            combinations = max(1, len(cfg.areas) * len(cfg.queries))
+            per_combination = max(1, (cfg.max_vacancies + combinations - 1) // combinations)
             for area in cfg.areas:
                 for query in cfg.queries:
                     remaining = cfg.max_vacancies - len(listed)
                     if remaining <= 0:
                         break
-                    log.info("Поиск: «%s», регион %s", query, area)
-                    for item in self.iter_search(query, area, remaining, result.found_by_query):
+                    pair_limit = min(per_combination, remaining)
+                    log.info(
+                        "Поиск: «%s», регион %s (лимит комбинации: %d)",
+                        query, area, pair_limit,
+                    )
+                    for item in self.iter_search(query, area, pair_limit, result.found_by_query):
                         vid = str(item.get("id", "")).strip()
                         if vid and vid not in listed:
                             listed[vid] = item
