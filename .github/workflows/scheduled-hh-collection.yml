@@ -1,0 +1,49 @@
+name: Scheduled HH.ru collection
+
+on:
+  schedule:
+    # Every 6 hours (UTC): 00:00, 06:00, 12:00, 18:00.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hhru-scheduled-collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect vacancies from HH.ru
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Validate configuration
+        env:
+          BACKEND_API_URL: ${{ vars.BACKEND_API_URL }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          if [ -z "$BACKEND_API_URL" ]; then
+            echo "::error::Repository variable BACKEND_API_URL is not configured."
+            exit 1
+          fi
+          if [ -z "$ADMIN_API_TOKEN" ]; then
+            echo "::error::Repository secret ADMIN_API_TOKEN is not configured."
+            exit 1
+          fi
+
+      - name: Run collection
+        env:
+          BACKEND_API_URL: ${{ vars.BACKEND_API_URL }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE_URL="${BACKEND_API_URL%/}"
+          echo "Starting scheduled HH.ru collection..."
+          curl --fail-with-body --silent --show-error \
+            --max-time 1800 \
+            --request POST \
+            "$BASE_URL/api/v1/etl/collect" \
+            --header "X-Admin-Token: $ADMIN_API_TOKEN" \
+            --header "Accept: application/json"
