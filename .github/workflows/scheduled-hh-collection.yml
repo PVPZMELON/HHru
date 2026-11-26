@@ -18,32 +18,74 @@ jobs:
     name: Collect vacancies from HH.ru
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: hh-bigdata
     steps:
-      - name: Validate configuration
-        env:
-          BACKEND_API_URL: ${{ vars.BACKEND_API_URL }}
-          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-        run: |
-          if [ -z "$BACKEND_API_URL" ]; then
-            echo "::error::Repository variable BACKEND_API_URL is not configured."
-            exit 1
-          fi
-          if [ -z "$ADMIN_API_TOKEN" ]; then
-            echo "::error::Repository secret ADMIN_API_TOKEN is not configured."
-            exit 1
-          fi
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Run collection
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hh-bigdata/requirements.txt
+
+      - name: Validate database and HH.ru configuration
         env:
-          BACKEND_API_URL: ${{ vars.BACKEND_API_URL }}
-          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          HH_API_TOKEN: ${{ secrets.HH_API_TOKEN }}
         run: |
           set -euo pipefail
-          BASE_URL="${BACKEND_API_URL%/}"
-          echo "Starting scheduled HH.ru collection..."
-          curl --fail-with-body --silent --show-error \
-            --max-time 1800 \
-            --request POST \
-            "$BASE_URL/api/v1/etl/collect" \
-            --header "X-Admin-Token: $ADMIN_API_TOKEN" \
-            --header "Accept: application/json"
+          for name in DB_HOST DB_NAME DB_USER DB_PASSWORD HH_API_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::GitHub Actions secret $name is missing."
+              exit 1
+            fi
+          done
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run database migrations
+        env:
+          DB_BACKEND: postgres
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT || '5432' }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_SSLMODE: require
+        run: python -m src.pipeline migrate
+
+      - name: Collect HH.ru vacancies and load PostgreSQL
+        env:
+          DB_BACKEND: postgres
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT || '5432' }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_SSLMODE: require
+          HH_API_TOKEN: ${{ secrets.HH_API_TOKEN }}
+          COLLECT_QUERIES: ${{ vars.COLLECT_QUERIES }}
+          COLLECT_AREAS: ${{ vars.COLLECT_AREAS }}
+          COLLECT_PER_PAGE: ${{ vars.COLLECT_PER_PAGE || '50' }}
+          COLLECT_MAX_PAGES: ${{ vars.COLLECT_MAX_PAGES || '5' }}
+          COLLECT_MAX_VACANCIES: ${{ vars.COLLECT_MAX_VACANCIES || '500' }}
+          COLLECT_FETCH_DETAILS: ${{ vars.COLLECT_FETCH_DETAILS || 'true' }}
+          COLLECT_DELAY_SEC: ${{ vars.COLLECT_DELAY_SEC || '0.5' }}
+          COLLECT_TIMEOUT_SEC: ${{ vars.COLLECT_TIMEOUT_SEC || '20' }}
+          COLLECT_MAX_RETRIES: ${{ vars.COLLECT_MAX_RETRIES || '4' }}
+          COLLECT_MAX_REQUESTS: ${{ vars.COLLECT_MAX_REQUESTS || '1500' }}
+          COLLECT_PERIOD_DAYS: ${{ vars.COLLECT_PERIOD_DAYS }}
+        run: |
+          set -euo pipefail
+          echo "Starting HH.ru collection directly on GitHub Actions runner..."
+          python -m src.pipeline collect
